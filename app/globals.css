@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss' important;
 @plugin "tailwindcss-animate";
 
 @custom-variant dark (&:is(.dark *));
@@ -57,8 +57,7 @@
 
 /* Leaflet map styles */
 .leaflet-container {
-  width: 100%;
-  height: 100%;
+  @apply w-full h-full;
 }
 
 .dark {
@@ -143,3 +142,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Override Leaflet popup styles */
+.leaflet-popup-content-wrapper {
+  @apply bg-black text-white rounded-lg p-5 border border-white/5;
+}
+
+.leaflet-popup-content {
+  @apply m-0 p-0;
+}
+
+.leaflet-popup-tip {
+  @apply bg-black;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  @apply shadow-lg;
+}
+
+/* Remove the details-button classes */

@@ -1,23 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { LatLngExpression } from 'leaflet';
+import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import {
-  getBartStations,
-  getDepartures,
-  getTrainLocations,
-  getBartRoutes,
-  getRouteInfo,
-  getSystemAlerts,
-  getTrainCount,
-  getElevatorStatus,
-  type Departure,
-  type Train,
+  fetchStationDepartures,
+  fetchInitialAppData,
+  type BartStation,
   type Route,
-  type SystemStatus
-} from '@/lib/bart';
+} from '@/lib/actions';
 
+// Extracted components for better organization
 const LoadingScreen = () => (
   <div className="w-full h-full bg-black flex items-center justify-center">
     <div className="relative">
@@ -40,6 +32,20 @@ const LoadingScreen = () => (
   </div>
 );
 
+// Type definition for Station to match Map component's expected type
+interface Station {
+  name: string;
+  abbr: string;
+  gtfs_latitude: string;
+  gtfs_longitude: string;
+  address: string;
+  city: string;
+  county: string;
+  state: string;
+  zipcode: string;
+  etd?: { destination: string; abbreviation: string; estimate: unknown[] }[];
+}
+
 // Dynamically import the map component to avoid SSR issues
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -47,214 +53,111 @@ const Map = dynamic(() => import('@/components/Map'), {
 });
 
 export default function Home() {
-  const [stations, setStations] = useState<any[]>([]);
-  const [selectedStation, setSelectedStation] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [departures, setDepartures] = useState<Departure[]>([]);
-  const [trains, setTrains] = useState<Train[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCounty, setSelectedCounty] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // State management
+  const [stations, setStations] = useState<BartStation[]>([]);
+  const [selectedStation, setSelectedStation] = useState<BartStation | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [systemStatus, setSystemStatus] = useState<SystemStatus>({
-    trainCount: 0,
-    alerts: [],
-    elevatorStatus: []
-  });
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch stations on mount
+  // Fetch initial data on mount using the server action
   useEffect(() => {
-    getBartStations()
-      .then(setStations)
-      .catch((e) =>
-        setError('Failed to load BART stations. Please try again later.')
-      );
+    const loadInitialData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Use the server action to fetch initial data
+        const { stations, routes } = await fetchInitialAppData();
+        
+        setStations(stations);
+        setRoutes(routes);
+      } catch (err) {
+        console.error('Error loading initial data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadInitialData();
   }, []);
 
-  // Real-time departure updates
+  // Real-time departure updates - update station ETD data
   useEffect(() => {
     if (!selectedStation) return;
 
     const updateDepartures = async () => {
-      const data = await getDepartures(selectedStation.abbr);
-      setDepartures(data || []);
-      setLastUpdated(new Date());
+      try {
+        console.log(`Fetching departures for station: ${selectedStation.name} (${selectedStation.abbr})`);
+        
+        // Use the server action to fetch departures
+        const departureData = await fetchStationDepartures(selectedStation.abbr);
+        console.log(`Received departure data:`, departureData);
+        
+        // Transform Departure[] to BartEstimation[] format
+        const transformedData = departureData.map(departure => ({
+          destination: departure.destination,
+          abbreviation: departure.abbreviation,
+          color: departure.estimate[0]?.color || '',
+          hexcolor: departure.estimate[0]?.hexcolor || '',
+          estimate: departure.estimate.map(est => ({
+            minutes: est.minutes,
+            direction: est.direction,
+            platform: est.platform,
+            delay: est.delay,
+            length: est.length
+          }))
+        }));
+        
+        console.log('Transformed ETD data:', transformedData);
+        
+        // Update the selected station's ETD data
+        setStations(prevStations => 
+          prevStations.map(station => {
+            if (station.abbr === selectedStation.abbr) {
+              console.log(`Updating station ${station.name} with new ETD data`);
+              return { ...station, etd: transformedData };
+            }
+            return station;
+          })
+        );
+        
+        // Also update the selected station reference to trigger re-renders
+        setSelectedStation(prev => {
+          if (!prev) return prev;
+          return { ...prev, etd: transformedData };
+        });
+      } catch (err) {
+        console.error(`Error updating departures for ${selectedStation.name}:`, err);
+      }
     };
 
-    // Initial fetch
+    // Fetch immediately on selection
     updateDepartures();
-
-    // Set up polling every 15 seconds
+    
+    // Then set up interval for updates
     const interval = setInterval(updateDepartures, 15000);
-
     return () => clearInterval(interval);
-  }, [selectedStation]);
+  }, [selectedStation?.abbr]); // Only depend on the station abbr, not the whole object
 
-  // Real-time train locations
-  useEffect(() => {
-    const updateTrainLocations = async () => {
-      const stationData = await getTrainLocations();
-      const activeTrains: Train[] = [];
-
-      stationData.forEach((station: any) => {
-        if (station.etd) {
-          station.etd.forEach((departure: any) => {
-            departure.estimate.forEach((est: any) => {
-              if (est.minutes !== 'Leaving' && parseInt(est.minutes) <= 5) {
-                activeTrains.push({
-                  destination: departure.destination,
-                  position: [parseFloat(station.gtfs_latitude), parseFloat(station.gtfs_longitude)],
-                  minutes: est.minutes
-                });
-              }
-            });
-          });
-        }
-      });
-
-      setTrains(activeTrains);
-      setLastUpdated(new Date());
-    };
-
-    updateTrainLocations();
-    const interval = setInterval(updateTrainLocations, 15000);
-    return () => clearInterval(interval);
+  // Handle station selection - simplified to just update state
+  const handleStationSelect = useCallback((station: Station) => {
+    setSelectedStation(station as BartStation);
   }, []);
 
-  // Fetch routes on mount
-  useEffect(() => {
-    const fetchRoutes = async () => {
-      const routesList = await getBartRoutes();
-      const routesWithInfo = await Promise.all(
-        routesList.map(async (route: any) => {
-          const info = await getRouteInfo(route.number);
-          return {
-            name: route.name,
-            number: route.number,
-            color: route.hexcolor,
-            stations: info?.stations || []
-          };
-        })
-      );
-      setRoutes(routesWithInfo.filter(route => route.stations.length > 0));
-    };
-    fetchRoutes();
-  }, []);
-
-  // Add new useEffect for system status
-  useEffect(() => {
-    const updateSystemStatus = async () => {
-      const [alerts, count, elevStatus] = await Promise.all([
-        getSystemAlerts(),
-        getTrainCount(),
-        getElevatorStatus()
-      ]);
-      
-      setSystemStatus({
-        trainCount: count,
-        alerts: Array.isArray(alerts) ? alerts : [alerts].filter(Boolean),
-        elevatorStatus: Array.isArray(elevStatus) ? elevStatus : [elevStatus].filter(Boolean)
-      });
-      setLastUpdated(new Date());
-    };
-
-    updateSystemStatus();
-    const interval = setInterval(updateSystemStatus, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, []);
-
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-red-500">{error}</p>
-      </div>
-    );
+  // Just show loading screen if still loading
+  if (isLoading) {
+    return <LoadingScreen />;
   }
-
-  // Validate coordinates before using them
-  const isValidCoordinate = (lat: string, lng: string) => {
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-    return !isNaN(latitude) && !isNaN(longitude) && 
-           latitude >= -90 && latitude <= 90 && 
-           longitude >= -180 && longitude <= 180;
-  };
-
-  const filteredStations = stations.filter((station) => {
-    const matchesSearch =
-      station.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      station.city.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCounty = !selectedCounty || station.county === selectedCounty;
-    return matchesSearch && matchesCounty;
-  });
-
-  const validStations = stations.filter(station => 
-    isValidCoordinate(station.gtfs_latitude, station.gtfs_longitude)
-  );
-
-  const validTrains = trains.filter(train => {
-    const [lat, lng] = train.position as number[];
-    return isValidCoordinate(lat.toString(), lng.toString());
-  });
-
-  const counties = [...new Set(stations.map((station) => station.county))];
-
-  const SF_CENTER: LatLngExpression = [37.7749, -122.4194];
 
   return (
     <div className="flex h-full relative">
-      <div className="flex-1">
+      <div className="flex-1 relative">
         <Map 
-          stations={validStations}
-          trains={validTrains}
+          stations={stations}
           selectedStation={selectedStation}
-          setSelectedStation={setSelectedStation}
+          setSelectedStation={handleStationSelect}
           routes={routes}
         />
       </div>
-      
-      {/* Info Panel */}
-      {selectedStation && (
-        <div className="w-96 border-l border-border bg-card">
-          <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium">{selectedStation.name}</h3>
-              <button 
-                onClick={() => setSelectedStation(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                ×
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Last updated: {lastUpdated?.toLocaleTimeString()}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {selectedStation.city}, {selectedStation.county}
-            </p>
-            <p className="text-sm text-muted-foreground">{selectedStation.address}</p>
-
-            {departures.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">Departures</h3>
-                <div className="space-y-1">
-                  {departures.map((departure) => (
-                    <div
-                      key={departure.destination}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span>{departure.destination}</span>
-                      <span className="font-medium">
-                        {departure.estimate?.[0]?.minutes} min
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
