@@ -43,7 +43,7 @@ BART Real-time Tracker provides live train tracking, real-time departures, stati
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/bart-tracker.git
+   git clone https://github.com/mejiabrayan/bart-tracker.git
    cd bart-tracker
    ```
 
