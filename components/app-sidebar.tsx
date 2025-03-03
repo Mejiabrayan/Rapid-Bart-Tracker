@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { Train, MapPin, Circle, Search } from 'lucide-react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 
 import { SystemOverview } from '@/components/system-overview';
@@ -127,16 +127,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   
-  // Use Next.js router hooks for URL state management
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   
-  // Get search query from URL and maintain a local state for immediate UI updates
   const urlQuery = searchParams.get('q') || '';
   const [searchQuery, setSearchQuery] = useState(urlQuery);
   
-  // Debounced function to update URL - shorter delay for better responsiveness
   const updateUrlQuery = useDebouncedCallback((value: string) => {
     const params = new URLSearchParams(searchParams);
     if (value) {
@@ -159,20 +156,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   };
 
-  // Sync with URL if it changes externally
-  useEffect(() => {
-    if (urlQuery !== searchQuery) {
-      setSearchQuery(urlQuery);
-      
-      // If URL has a search query but we haven't loaded data yet, load it
-      if (urlQuery && !dataLoaded) {
-        loadAllData();
-      }
-    }
-  }, [urlQuery]);
-  
-  // Simple function to load all data at once
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     // Don't load if already loading or already loaded
     if (loading || dataLoaded) return;
     
@@ -222,7 +206,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, dataLoaded, setLoading, setLines, setDataLoaded]);
+  
+  // Sync with URL if it changes externally
+  useEffect(() => {
+    if (urlQuery !== undefined) {
+      setSearchQuery(urlQuery);
+      
+      // If URL has a search query but we haven't loaded data yet, load it
+      if (urlQuery && !dataLoaded) {
+        loadAllData();
+      }
+    }
+  }, [urlQuery, dataLoaded, loadAllData, searchQuery]);
   
   // Memoize the filtered lines to avoid recalculating on every render
   const filteredLines = useMemo(() => {

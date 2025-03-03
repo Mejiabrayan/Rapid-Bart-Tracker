@@ -9,20 +9,16 @@ import {
   type Route,
 } from '@/lib/actions';
 
-// Extracted components for better organization
 const LoadingScreen = () => (
   <div className="w-full h-full bg-black flex items-center justify-center">
     <div className="relative">
-      {/* Outer glow rings */}
       <div className="absolute inset-0 animate-ping-slow rounded-full bg-green-500/20 scale-150" />
       <div className="absolute inset-0 animate-ping-slower rounded-full bg-green-500/10 scale-200" />
       
-      {/* Center dot */}
       <div className="relative w-4 h-4 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50">
         <div className="absolute inset-0 rounded-full bg-green-400/50 animate-ping" />
       </div>
       
-      {/* Loading text */}
       <div className="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
         <p className="text-green-500 text-sm font-mono animate-pulse">
           Initializing BART System...
@@ -32,7 +28,6 @@ const LoadingScreen = () => (
   </div>
 );
 
-// Type definition for Station to match Map component's expected type
 interface Station {
   name: string;
   abbr: string;
@@ -88,11 +83,9 @@ export default function Home() {
       try {
         console.log(`Fetching departures for station: ${selectedStation.name} (${selectedStation.abbr})`);
         
-        // Use the server action to fetch departures
         const departureData = await fetchStationDepartures(selectedStation.abbr);
         console.log(`Received departure data:`, departureData);
         
-        // Transform Departure[] to BartEstimation[] format
         const transformedData = departureData.map(departure => ({
           destination: departure.destination,
           abbreviation: departure.abbreviation,
@@ -109,7 +102,6 @@ export default function Home() {
         
         console.log('Transformed ETD data:', transformedData);
         
-        // Update the selected station's ETD data
         setStations(prevStations => 
           prevStations.map(station => {
             if (station.abbr === selectedStation.abbr) {
@@ -120,7 +112,6 @@ export default function Home() {
           })
         );
         
-        // Also update the selected station reference to trigger re-renders
         setSelectedStation(prev => {
           if (!prev) return prev;
           return { ...prev, etd: transformedData };
@@ -143,7 +134,6 @@ export default function Home() {
     setSelectedStation(station as BartStation);
   }, []);
 
-  // Just show loading screen if still loading
   if (isLoading) {
     return <LoadingScreen />;
   }

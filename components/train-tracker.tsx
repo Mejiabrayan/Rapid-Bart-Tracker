@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Circle } from 'lucide-react';
 import { fetchTrainLocationsInfo, type Train } from '@/lib/actions';
 // We need to create a new server action for train locations since it's not in actions.ts yet
@@ -14,7 +14,11 @@ export function TrainTracker({ onTrainUpdate }: TrainTrackerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchTrainData() {
+  // Fetch train data with useCallback to avoid recreating on every render
+  const fetchTrainData = useCallback(async () => {
+    if (loading) return;
+    
+    setLoading(true);
     try {
       const trainData = await fetchTrainLocationsInfo();
       setTrains(trainData);
@@ -24,14 +28,14 @@ export function TrainTracker({ onTrainUpdate }: TrainTrackerProps) {
       setError(err instanceof Error ? err.message : 'Failed to fetch train data');
       setLoading(false);
     }
-  }
+  }, [loading, setLoading, setTrains, setError, onTrainUpdate]);
 
   useEffect(() => {
     fetchTrainData();
     // Update every 15 seconds (BART API updates every ~15-20 seconds)
     const interval = setInterval(fetchTrainData, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchTrainData]);
 
   if (loading) {
     return (
