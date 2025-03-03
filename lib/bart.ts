@@ -343,33 +343,134 @@ export async function getBartStations(): Promise<BartStation[]> {
 
 export async function getDepartures(station: string): Promise<Departure[]> {
   try {
+    console.log(`Fetching departures for station ${station}...`);
+    
     const url = buildUrl(ENDPOINTS.ETD, { cmd: 'etd', orig: station });
     const response = await fetch(url);
-    const data = await safeParseResponse(
-      response,
-      BartDeparturesResponseSchema,
-      `Failed to fetch departures for station ${station}`
-    );
     
-    // Transform the response to match our Departure interface
-    const departures = data.root.station[0].etd || [];
-    return departures.map(etd => ({
-      destination: etd.destination,
-      abbreviation: etd.abbreviation,
-      limited: etd.limited || '',
-      estimate: etd.estimate.map(est => ({
-        minutes: est.minutes,
-        platform: est.platform,
-        direction: est.direction,
-        length: est.length,
-        color: est.color || '',
-        hexcolor: est.hexcolor || '',
-        bikeflag: est.bikeflag || '',
-        delay: est.delay,
-      })),
-    }));
+    if (!response.ok) {
+      throw new Error(`Failed to fetch departures: ${response.status} ${response.statusText}`);
+    }
+    
+    const rawData = await response.json();
+    console.log(`Raw departures data for ${station}:`, JSON.stringify(rawData).substring(0, 200) + '...');
+    
+    try {
+      // Try parsing with the strict schema first
+      const result = BartDeparturesResponseSchema.safeParse(rawData);
+      
+      if (!result.success) {
+        console.error(`Departures validation errors for ${station}:`, result.error.format());
+        
+        // Implement custom fallback parsing
+        if (rawData?.root?.station) {
+          console.log(`Attempting custom fallback parsing for station ${station}...`);
+          
+          const stations = Array.isArray(rawData.root.station) ? 
+            rawData.root.station : [rawData.root.station];
+          
+          if (stations.length === 0) {
+            console.log(`No station data found for ${station}`);
+            return [];
+          }
+          
+          const stationData = stations[0];
+          
+          // Get all ETD (estimated departure) data
+          const departures: Departure[] = [];
+          
+          if (stationData.etd) {
+            const etdList = Array.isArray(stationData.etd) ? 
+              stationData.etd : [stationData.etd];
+            
+            // Process each destination's departures
+            etdList.forEach((etd: RawEtd) => {
+              if (!etd) return;
+              
+              // Map color names to hexcodes for common BART lines when missing
+              const getLineColor = (): { color: string, hexcolor: string } => {
+                if (etd.color && etd.hexcolor) {
+                  return { color: etd.color, hexcolor: etd.hexcolor };
+                }
+                
+                // Fallback colors based on common BART lines
+                const colorMap: Record<string, { color: string, hexcolor: string }> = {
+                  'ANTC': { color: 'YELLOW', hexcolor: '#ffff33' },
+                  'SFIA': { color: 'YELLOW', hexcolor: '#ffff33' },
+                  'MLBR': { color: 'RED', hexcolor: '#ff0000' },
+                  'RICH': { color: 'RED', hexcolor: '#ff0000' },
+                  'DALY': { color: 'GREEN', hexcolor: '#339933' },
+                  'DUBL': { color: 'BLUE', hexcolor: '#0099cc' },
+                  'WARM': { color: 'GREEN', hexcolor: '#339933' },
+                  'BERY': { color: 'GREEN', hexcolor: '#339933' },
+                  'OAKL': { color: 'ORANGE', hexcolor: '#ff9933' },
+                  'COLS': { color: 'ORANGE', hexcolor: '#ff9933' }
+                };
+                
+                // Try to match by destination abbreviation
+                const abbr = etd.abbreviation || '';
+                if (abbr && colorMap[abbr]) {
+                  return colorMap[abbr];
+                }
+                
+                // Default fallback
+                return { color: 'GREY', hexcolor: '#999999' };
+              };
+              
+              const { color, hexcolor } = getLineColor();
+              
+              const estimates = Array.isArray(etd.estimate) ? 
+                etd.estimate : (etd.estimate ? [etd.estimate] : []);
+              
+              departures.push({
+                destination: etd.destination || 'Unknown',
+                abbreviation: etd.abbreviation || '',
+                limited: '',
+                estimate: estimates.map((est: RawEtdEstimate) => ({
+                  minutes: String(est.minutes || ''),
+                  platform: String(est.platform || ''),
+                  direction: String(est.direction || ''),
+                  length: String(est.length || ''),
+                  color: color,
+                  hexcolor: hexcolor,
+                  bikeflag: '0',
+                  delay: String(est.delay || '0'),
+                })),
+              });
+            });
+          }
+          
+          return departures;
+        }
+        
+        throw new Error(`Failed to parse departures for station ${station}: ${result.error.message}`);
+      }
+      
+      // If validation succeeded, use the standard transformation
+      const data = result.data;
+      const departures = data.root.station[0].etd || [];
+      
+      return departures.map(etd => ({
+        destination: etd.destination,
+        abbreviation: etd.abbreviation,
+        limited: etd.limited || '',
+        estimate: etd.estimate.map(est => ({
+          minutes: est.minutes,
+          platform: est.platform,
+          direction: est.direction,
+          length: est.length,
+          color: est.color || '',
+          hexcolor: est.hexcolor || '',
+          bikeflag: est.bikeflag || '',
+          delay: est.delay,
+        })),
+      }));
+    } catch (parseError) {
+      console.error(`Error parsing departures for ${station}:`, parseError);
+      return [];
+    }
   } catch (error) {
-    console.error('Error fetching departures:', error);
+    console.error(`Error fetching departures for ${station}:`, error);
     return [];
   }
 }
@@ -587,31 +688,85 @@ export async function getRouteInfo(routeNumber: string): Promise<Route | null> {
   }
 }
 
+// Create a proper interface for raw alerts
+interface RawAlertItem {
+  description?: string | { '#cdata-section': string } | null;
+  posted?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
 export async function getSystemAlerts(): Promise<SystemAlert[]> {
   try {
+    // Log to debug the raw alert data
+    console.log('Fetching system alerts...');
+    
     const url = buildUrl(ENDPOINTS.ADVISORIES, { cmd: 'bsa' });
     const response = await fetch(url);
     
-    // Log the raw response for debugging
-    const rawData = await response.text();
-    console.log('Raw system alerts response:', rawData);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch alerts: ${response.status} ${response.statusText}`);
+    }
     
-    // Parse the response with more flexible error handling
+    const rawData = await response.json();
+    console.log('Raw system alerts data:', JSON.stringify(rawData).substring(0, 200) + '...');
+    
     try {
-      const data = await safeParseResponse(
-        new Response(rawData),
-        BartAlertsResponseSchema,
-        'Failed to fetch system alerts'
-      );
+      const result = BartAlertsResponseSchema.safeParse(rawData);
+      
+      if (!result.success) {
+        console.error('System alerts validation errors:', result.error.format());
+        
+        // Attempt fallback parsing
+        if (rawData?.root?.bsa) {
+          const alerts = rawData.root.bsa;
+          if (!alerts) return [];
+          
+          // Handle both array and single object cases with proper typing
+          const alertsArray: RawAlertItem[] = Array.isArray(alerts) ? alerts : [alerts as RawAlertItem];
+          
+          return alertsArray.map((alert: RawAlertItem) => {
+            // Skip invalid alert objects
+            if (!alert || typeof alert !== 'object') {
+              return {
+                description: '',
+                posted: new Date().toISOString(),
+                type: 'UNKNOWN'
+              };
+            }
+            
+            // Handle different description formats
+            let description = '';
+            if (typeof alert.description === 'object' && 
+                alert.description && 
+                '#cdata-section' in alert.description) {
+              description = alert.description['#cdata-section'];
+            } else if (typeof alert.description === 'string') {
+              description = alert.description;
+            }
+                  
+            // Handle missing fields with defaults
+            return {
+              description: description,
+              posted: typeof alert.posted === 'string' ? alert.posted : new Date().toISOString(),
+              type: typeof alert.type === 'string' ? alert.type : 'DELAY',
+            };
+          }).filter(alert => alert.description); // Filter out alerts with empty descriptions
+        }
+        
+        return [];
+      }
+      
+      const data = result.data;
       
       const alerts = data.root.bsa;
       if (!alerts) return [];
       
-      // Handle both array and single object cases with type assertion
-      // This is necessary because the API response format is inconsistent
-      const alertsArray = Array.isArray(alerts) ? alerts : [alerts as any];
+      // Handle both array and single object cases with proper typing
+      const alertsArray: z.infer<typeof BartAlertSchema>[] = 
+        Array.isArray(alerts) ? alerts : [alerts as z.infer<typeof BartAlertSchema>];
       
-      return alertsArray.map((alert: any) => {
+      return alertsArray.map((alert: z.infer<typeof BartAlertSchema>) => {
         // Skip invalid alert objects
         if (!alert || typeof alert !== 'object') {
           return {
@@ -667,16 +822,17 @@ export async function getTrainCount(): Promise<number> {
 
 export async function getElevatorStatus(): Promise<SystemAlert[]> {
   try {
+    console.log('Fetching elevator status...');
+    
     const url = buildUrl(ENDPOINTS.ADVISORIES, { cmd: 'elev' });
     const response = await fetch(url);
     
-    // Log the raw response for debugging
     if (!response.ok) {
       throw new Error(`Failed to fetch elevator status: ${response.status} ${response.statusText}`);
     }
     
     const rawData = await response.json();
-    console.log('Raw elevator status data:', JSON.stringify(rawData).substring(0, 500) + '...');
+    console.log('Raw elevator status data:', JSON.stringify(rawData).substring(0, 200) + '...');
     
     // Try to parse with schema
     const result = BartAlertsResponseSchema.safeParse(rawData);
@@ -714,7 +870,30 @@ export async function getElevatorStatus(): Promise<SystemAlert[]> {
     const status = result.data.root.bsa;
     if (!status) return [];
 
-    const normalizeStatus = (item: z.infer<typeof BartAlertSchema>): SystemAlert => ({
+    // Define a safe type for the normalizeStatus function
+    type BartAlertType = z.infer<typeof BartAlertSchema>;
+    
+    // Helper function to check if an item is a valid BartAlertType
+    function isValidBartAlert(item: unknown): item is BartAlertType {
+      return (
+        item !== null &&
+        typeof item === 'object' &&
+        (
+          (
+            'description' in (item as BartAlertType) &&
+            'posted' in (item as BartAlertType) &&
+            'type' in (item as BartAlertType)
+          ) ||
+          (
+            'description' in (item as BartAlertType) &&
+            typeof (item as BartAlertType).description === 'object' &&
+            '#cdata-section' in ((item as BartAlertType).description as { '#cdata-section': string })
+          )
+        )
+      );
+    }
+
+    const normalizeStatus = (item: BartAlertType): SystemAlert => ({
       description:
         typeof item.description === 'object' &&
         '#cdata-section' in item.description
@@ -724,9 +903,14 @@ export async function getElevatorStatus(): Promise<SystemAlert[]> {
       type: item.type || '',
     });
 
-    return Array.isArray(status)
-      ? status.map(normalizeStatus)
-      : [normalizeStatus(status)];
+    if (Array.isArray(status)) {
+      // Filter out invalid items before mapping
+      return status.filter(isValidBartAlert).map(normalizeStatus);
+    } else if (isValidBartAlert(status)) {
+      return [normalizeStatus(status)];
+    } else {
+      return [];
+    }
   } catch (error) {
     console.error('Error fetching elevator status:', error);
     return [];
