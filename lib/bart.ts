@@ -1503,3 +1503,58 @@ interface RawEtd {
   estimate?: RawEtdEstimate[];
   [key: string]: unknown;
 }
+
+export interface StationInfo extends BartStation {
+  intro: string;
+  cross_street: string;
+  food: string;
+  shopping: string;
+  attraction: string;
+  link: string;
+}
+
+export interface StationAccess {
+  station: string;
+  intro: string;
+  parking: {
+    type: string;
+    description: string;
+  };
+  bike: {
+    allowed: string;
+    rack: string;
+    locker: string;
+  };
+  lockers: string;
+  transit_info: string;
+}
+
+export async function getStationInfo(station: string): Promise<StationInfo | null> {
+  try {
+    const url = buildUrl(ENDPOINTS.STATIONS, { cmd: 'stninfo', orig: station });
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch station info: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.root?.stations?.station?.[0] || null;
+  } catch (error) {
+    console.error('Error fetching station info:', error);
+    return null;
+  }
+}
+
+export async function getStationAccess(station: string): Promise<StationAccess | null> {
+  try {
+    const url = buildUrl(ENDPOINTS.STATIONS, { cmd: 'stnaccess', orig: station });
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch station access: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.root?.stations?.station?.[0] || null;
+  } catch (error) {
+    console.error('Error fetching station access:', error);
+    return null;
+  }
+}

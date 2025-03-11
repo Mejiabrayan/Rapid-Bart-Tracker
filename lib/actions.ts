@@ -17,6 +17,8 @@ import {
   getStationSchedule as fetchStationSchedule,
   getRouteSchedule as fetchRouteSchedule,
   getApiVersion as fetchApiVersion,
+  getStationInfo,
+  getStationAccess,
   type BartStation,
   type Departure,
   type Route,
@@ -29,9 +31,10 @@ import {
   type Holiday,
   type StationSchedule,
   type RouteSchedule,
+  type StationInfo,
+  type StationAccess,
 } from '@/lib/bart';
 
-// Performance monitoring utility for server actions
 const measureServerAction = async <T>(
   actionName: string,
   fn: () => Promise<T>
@@ -70,6 +73,10 @@ export const fetchAllStations = unstable_cache(
     revalidate: 86400, // Cache for 24 hours (stations rarely change)
   }
 );
+
+// export const fetchIndividualStation = unstable_cache(
+//   async (): Promise<>
+// )
 
 // Don't cache departures - these need to be real-time
 export async function fetchStationDepartures(
@@ -299,7 +306,12 @@ export async function fetchTripByDeparture(
     `fetchTripByDeparture(${origin}, ${destination}, ${time}, ${date})`,
     async () => {
       try {
-        const trips = await fetchTripByDepartureTime(origin, destination, time, date);
+        const trips = await fetchTripByDepartureTime(
+          origin,
+          destination,
+          time,
+          date
+        );
         return trips;
       } catch (error) {
         console.error(
@@ -323,7 +335,12 @@ export async function fetchTripByArrival(
     `fetchTripByArrival(${origin}, ${destination}, ${time}, ${date})`,
     async () => {
       try {
-        const trips = await fetchTripByArrivalTime(origin, destination, time, date);
+        const trips = await fetchTripByArrivalTime(
+          origin,
+          destination,
+          time,
+          date
+        );
         return trips;
       } catch (error) {
         console.error(
@@ -441,6 +458,46 @@ export async function invalidateBartCaches() {
     }
   });
 }
+
+// Cache station info with medium TTL
+export const fetchStationInfo = unstable_cache(
+  async (station: string): Promise<StationInfo | null> => {
+    return measureServerAction(`fetchStationInfo(${station})`, async () => {
+      try {
+        const info = await getStationInfo(station);
+        return info;
+      } catch (error) {
+        console.error(`Server action error fetching station info for ${station}:`, error);
+        return null;
+      }
+    });
+  },
+  ['bart-station-info'],
+  {
+    tags: ['stations'],
+    revalidate: 3600, // Cache for 1 hour (station info changes occasionally)
+  }
+);
+
+// Cache station access info with medium TTL
+export const fetchStationAccess = unstable_cache(
+  async (station: string): Promise<StationAccess | null> => {
+    return measureServerAction(`fetchStationAccess(${station})`, async () => {
+      try {
+        const access = await getStationAccess(station);
+        return access;
+      } catch (error) {
+        console.error(`Server action error fetching station access for ${station}:`, error);
+        return null;
+      }
+    });
+  },
+  ['bart-station-access'],
+  {
+    tags: ['stations'],
+    revalidate: 3600, // Cache for 1 hour (access info changes occasionally)
+  }
+);
 
 export type {
   BartStation,

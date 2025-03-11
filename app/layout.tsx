@@ -3,7 +3,6 @@ import { Inter, Fanwood_Text } from 'next/font/google';
 import './globals.css';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
-import ClientPerformanceWrapper from '@/components/ClientPerformanceWrapper';
 import { type ReactNode } from 'react';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -77,7 +76,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <main className='h-[calc(100vh-1rem)]'>{children}</main>
             </div>
           </SidebarProvider>
-          <ClientPerformanceWrapper />
         </div>
       </body>
     </html>
