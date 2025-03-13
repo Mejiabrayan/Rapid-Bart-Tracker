@@ -12,32 +12,19 @@ import {
 import { LatLngExpression } from 'leaflet';
 import React from 'react';
 import { StationMarker } from '@/components/client/station-marker';
+import { DensityHeatmap } from '@/components/client/density-visualization';
+import { useDensityVisualization } from '@/lib/context/density-context';
+import { type BartStation, type Route } from '@/lib/actions';
 
-interface Station {
-  name: string;
-  abbr: string;
-  gtfs_latitude: string;
-  gtfs_longitude: string;
-  address: string;
-  city: string;
-  county: string;
-  state: string;
-  zipcode: string;
-  etd?: { destination: string; abbreviation: string; estimate: unknown[] }[];
+// Extended BartStation with crowding property
+interface Station extends BartStation {
   crowding?: 'LOW' | 'MODERATE' | 'HIGH';
 }
 
-interface Route {
-  name: string;
-  number: string;
-  color: string;
-  stations: string[];
-}
-
 interface MapProps {
-  stations: Station[];
-  selectedStation: Station | null;
-  setSelectedStation: (station: Station) => void;
+  stations: BartStation[];
+  selectedStation: BartStation | null;
+  setSelectedStation: (station: BartStation) => void;
   routes: Route[];
 }
 
@@ -49,18 +36,31 @@ export default function Map({
   setSelectedStation,
   routes,
 }: MapProps) {
-  console.log('Routes received:', routes);
+  // Get density state from context
+  const { showDensity, currentTime } = useDensityVisualization();
+  
+  console.log('Map component rendering with showDensity:', showDensity, 'currentTime:', currentTime);
+  console.log('Routes received:', routes, 'Routes length:', routes.length);
   console.log('Selected station:', stationSelected?.name || 'None');
 
   // Create route lines by connecting stations in order - memoized to prevent recalculation
   const routeLines = React.useMemo(() => {
     console.time('createRouteLines');
+    
+    // Debugging - log if we have routes data
+    if (!routes || routes.length === 0) {
+      console.warn('No routes data available to render lines');
+      return [];
+    }
+    
     const lines = routes.map((route) => {
       // Get stations in the order specified by the route
       const routeStations = route.stations
         .map((stationAbbr) => stations.find((s) => s.abbr === stationAbbr))
-        .filter((station) => station != null); // Remove any stations not found
+        .filter((station): station is BartStation => station != null); // Remove any stations not found
 
+      console.log(`Route ${route.name}: Found ${routeStations.length} of ${route.stations.length} stations`);
+      
       const coordinates = routeStations.map(
         (station) =>
           [
@@ -80,7 +80,7 @@ export default function Map({
 
     // Log performance after render using setTimeout
     setTimeout(() => {
-      console.log('Route lines created:', lines);
+      console.log('Route lines created:', lines.length, 'lines');
     }, 0);
 
     return lines;
@@ -148,15 +148,21 @@ export default function Map({
   const renderedStationMarkers = React.useMemo(() => {
     console.time('renderStationMarkers');
     const renderedStations = stations.map((station) => {
+      // Create a copy of the station with crowding added
+      const stationWithCrowding: Station = {
+        ...station,
+        crowding: undefined
+      };
+      
       // Add random crowding levels for testing if not specified
       // In a real app, this would come from your backend
-      if (!station.crowding) {
+      if (!stationWithCrowding.crowding) {
         const crowdingLevels: ('LOW' | 'MODERATE' | 'HIGH')[] = ['LOW', 'MODERATE', 'HIGH'];
-        station.crowding = crowdingLevels[Math.floor(Math.random() * crowdingLevels.length)];
+        stationWithCrowding.crowding = crowdingLevels[Math.floor(Math.random() * crowdingLevels.length)];
         
         // Make high traffic more rare (25% of stations)
-        if (station.crowding === 'HIGH' && Math.random() > 0.25) {
-          station.crowding = 'MODERATE';
+        if (stationWithCrowding.crowding === 'HIGH' && Math.random() > 0.25) {
+          stationWithCrowding.crowding = 'MODERATE';
         }
       }
 
@@ -164,9 +170,12 @@ export default function Map({
       return (
         <StationMarker
           key={station.abbr}
-          station={station}
+          station={stationWithCrowding}
           isSelected={stationSelected?.abbr === station.abbr}
-          onSelect={setSelectedStation}
+          onSelect={(updatedStation) => {
+            // Cast back to BartStation when calling the setter
+            setSelectedStation(updatedStation);
+          }}
         />
       );
     });
@@ -190,12 +199,23 @@ export default function Map({
     >
       <TileLayer
         attribution='&copy; <a href="https://stadiamaps.com/" target="_blank">Stadia Maps</a>'
-        url="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key={apiKey}"
-        apiKey={process.env.NEXT_PUBLIC_STADIA_API_KEY || ''}
+        url={`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${process.env.NEXT_PUBLIC_STADIA_API_KEY || ''}`}
         maxZoom={20}
       />
+      
+      {/* Always render the routes */}
       {renderedRouteLines}
+      
+      {/* Always show station markers */}
       {renderedStationMarkers}
+      
+      {/* Population density heatmap - only shown when enabled */}
+      {showDensity && (
+        <DensityHeatmap 
+          currentTime={currentTime}
+          visible={showDensity}
+        />
+      )}
     </MapContainer>
   );
 }

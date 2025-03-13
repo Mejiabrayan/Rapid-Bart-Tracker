@@ -4,20 +4,12 @@ import React from 'react';
 import { Marker, Popup } from 'react-leaflet';
 import { LatLngExpression, DivIcon } from 'leaflet';
 import L from 'leaflet';
+import { type BartStation } from '@/lib/actions';
 
 type CrowdingLevel = 'LOW' | 'MODERATE' | 'HIGH';
 
-interface Station {
-  name: string;
-  abbr: string;
-  gtfs_latitude: string;
-  gtfs_longitude: string;
-  address: string;
-  city: string;
-  state: string;
-  county: string;
-  zipcode: string;
-  etd?: { destination: string; abbreviation: string; estimate: unknown[] }[];
+// Extend BartStation with crowding property
+interface Station extends BartStation {
   crowding?: CrowdingLevel;
 }
 

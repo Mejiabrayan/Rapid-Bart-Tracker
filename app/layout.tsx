@@ -3,6 +3,7 @@ import { Inter, Fanwood_Text } from 'next/font/google';
 import './globals.css';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { DensityVisualizationProvider } from '@/lib/context/density-context';
 import { type ReactNode } from 'react';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -70,12 +71,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang='en' className='h-full'>
       <body className={`${inter.className} h-full antialiased dark isolate`}>
         <div className='relative flex min-h-screen'>
-          <SidebarProvider>
-            <AppSidebar />
-            <div className='flex flex-1 flex-col gap-4 md:p-4 md:pt-2.5 md:pb-2.5'>
-              <main className='h-[calc(100vh-1rem)]'>{children}</main>
-            </div>
-          </SidebarProvider>
+          <DensityVisualizationProvider>
+            <SidebarProvider>
+              <AppSidebar />
+              <div className='flex flex-1 flex-col gap-4 md:p-4 md:pt-2.5 md:pb-2.5'>
+                <main className='h-[calc(100vh-1rem)]'>{children}</main>
+              </div>
+            </SidebarProvider>
+          </DensityVisualizationProvider>
         </div>
       </body>
     </html>
